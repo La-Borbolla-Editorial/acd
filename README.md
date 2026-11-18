@@ -39,9 +39,15 @@ por su hash.
    cuando el hueco la deja clara (entre n. 7 y n. 9, n. 8). Ninguna propuesta
    entra al mapa hasta que se acepta (`acceptCandidates`).
 
+   También reconoce **encabezados** que abren una división («[Question 2»,
+   «QUAESTIO II», «Distinctio 4»): líneas cortas, con letra más grande o
+   centradas, que empiezan con un patrón del esquema (`headings`). Si el número
+   no se lee, toma el siguiente al vigente, con menos confianza.
+
    Con la traducción de Spade de *Ordinatio* II d. 3 p. 1 (55 hojas, 212
    párrafos) detecta 205 de los 208 que tiene el PDF; los otros 3 quedan
-   sospechosos con la corrección correcta.
+   sospechosos con la corrección correcta. Detecta además los cinco cambios de
+   cuestión.
 
 `fromPdfjs` convierte lo que devuelve `page.getTextContent()` de pdf.js a los
 fragmentos que espera `detect`.
@@ -68,8 +74,8 @@ definir otros.
 
 - Confirmar con la edición Vaticana que el número de la *Ordinatio* se reinicia
   con la distinción, y cómo tratar «q. un.».
-- Detectar encabezados estructurales («[Question 2», «Quaestio 2», «§ 43»):
-  hoy el cambio de cuestión se marca a mano.
+- Encabezados con el número en palabras («Distinctio tertia», «Question
+  One»).
 - Hojas a dos columnas en la detección.
 - Más PDFs reales. Van en `fixtures/private/`, que git ignora (tienen
   derechos); `test/private.test.ts` se salta si no están.

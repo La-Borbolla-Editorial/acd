@@ -61,11 +61,24 @@ export interface Marker {
 
 export type MarkerPlace = 'margin' | 'inline' | 'lineStart'
 
+/**
+ * Encabezado que abre una división de la obra: «[Question 2», «QUAESTIO II»,
+ * «Distinctio 3». `pattern` se busca al principio de una línea que parezca
+ * encabezado (letra más grande que el cuerpo, o línea corta y centrada), sin
+ * distinguir mayúsculas. Puede tener un grupo con nombre igual a `level`; si
+ * no lo tiene o el número no se lee, se toma el valor siguiente al vigente.
+ */
+export interface Heading {
+  level: string
+  pattern: string
+}
+
 export interface Scheme {
   id: string
   name: string
   levels: Level[]
   markers?: Marker[]
+  headings?: Heading[]
 }
 
 /** Punto del PDF: hoja (desde 1) y altura relativa desde arriba (0 a 1). */

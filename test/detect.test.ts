@@ -121,3 +121,48 @@ test('adaptador de pdf.js: origen abajo → arriba', () => {
   expect(box).toEqual({ page: 3, width: 600, height: 800 })
   expect(items).toEqual([{ page: 3, str: '29', x: 60, y: 90, width: 12, height: 10 }])
 })
+
+/** Hoja con encabezados: `heads` va de número de línea a [texto, alto de letra, x]. */
+function pageWithHeadings(n: number, heads: Record<number, [string, number, number]>, inline: Record<number, string> = {}): TextItem[] {
+  const items = page(n, {}, inline).filter((it) => !Object.keys(heads).some((i) => it.y === 60 + Number(i) * 22))
+  for (const [i, [str, h, x]] of Object.entries(heads)) items.push({ page: n, str, x, y: 60 + Number(i) * 22, width: str.length * 6, height: h })
+  return items
+}
+
+test('encabezados: cambian la cuestión y el número sigue corriendo', () => {
+  const items = pageWithHeadings(1, { 8: ['[Question 2', 14, 260] }, { 2: '(29)', 12: '(30)' })
+  const c = detect(start(), 'ordinatio', boxes(1), items)
+  expect(c.map((x) => [x.where, x.text])).toEqual([
+    ['lineStart', 'II d. 3 q. 1 n. 29'],
+    ['heading', 'II d. 3 q. 2 n. 29'],
+    ['lineStart', 'II d. 3 q. 2 n. 30'],
+  ])
+})
+
+test('encabezados en romanos, en latín, partidos en dos fragmentos o sin número legible', () => {
+  const items = [
+    ...pageWithHeadings(1, { 5: ['QUAESTIO II', 14, 250], 15: ['[Question', 14, 250] }),
+    // El número en otro cuerpo de letra, en su propio fragmento.
+    { page: 1, str: '3', x: 310, y: 60 + 15 * 22 + 2, width: 5, height: 8 },
+    ...pageWithHeadings(2, { 5: ['[Question ?', 14, 250] }),
+  ]
+  const c = detect(start(), 'ordinatio', boxes(2), items)
+  expect(c.map((x) => [x.page, x.found, x.ref.q, x.confidence])).toEqual([
+    [1, 'QUAESTIO II', '2', 1],
+    [1, '[Question 3', '3', 1],
+    [2, '[Question', '4', 0.5],
+  ])
+})
+
+test('una línea del cuerpo que empieza con «Question» no es encabezado; un encabezado repetido sobra', () => {
+  const items = pageWithHeadings(1, { 4: ['[Questions 5 and 6', 14, 230], 6: ['Question 5', 11, 270] }, { 10: 'Question 6 is harder than it looks' })
+  const c = detect(start(), 'ordinatio', boxes(1), items)
+  expect(c.map((x) => [x.found, x.ref.q])).toEqual([['[Questions 5', '5']])
+})
+
+test('una distinción nueva reinicia cuestión y número', () => {
+  const items = pageWithHeadings(1, { 8: ['DISTINCTIO 4', 14, 260], 10: ['QUAESTIO 1', 14, 260] }, { 2: '(29)', 12: '(1)' })
+  const c = detect(start(), 'ordinatio', boxes(1), items)
+  expect(c.map((x) => x.text)).toEqual(['II d. 3 q. 1 n. 29', 'II d. 4', 'II d. 4 q. 1', 'II d. 4 q. 1 n. 1'])
+  expect(c.every((x) => x.status === 'ok')).toBe(true)
+})

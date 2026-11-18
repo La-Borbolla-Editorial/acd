@@ -7,7 +7,7 @@
 import { getScheme } from './map.js'
 import { anchorsOf, applySet, comparePos, formatRef } from './resolve.js'
 import type { Anchor, CanonMap, MarkerPlace, Ref, Scheme } from './types.js'
-import { normalizeValue, ordinal, valueAt } from './values.js'
+import { firstValue, fromRoman, nextValue, normalizeValue, ordinal, valueAt } from './values.js'
 
 /** Fragmento de texto. Coordenadas en unidades del PDF, con origen ARRIBA a la izquierda. */
 export interface TextItem {
@@ -41,7 +41,7 @@ export interface Candidate extends Anchor {
   confidence: number
   /** `suspicious`: rompe la secuencia; hay que revisarla antes de aceptarla. */
   status: 'ok' | 'suspicious'
-  where: MarkerPlace
+  where: MarkerPlace | 'heading'
   /** Texto encontrado en el PDF. */
   found: string
   /** En una marca sospechosa: el valor que debería ir ahí, si el hueco lo deja claro. */
@@ -72,8 +72,10 @@ interface Raw {
   y: number
   x: number
   set: Record<string, string>
-  where: MarkerPlace
+  where: MarkerPlace | 'heading'
   found: string
+  /** Encabezado sin número legible: el nivel toma el valor siguiente al vigente. */
+  infer?: string
 }
 
 /**
@@ -101,11 +103,52 @@ function setFrom(scheme: Scheme, groups: Record<string, string | undefined>): Re
     if (v === undefined) continue
     const l = scheme.levels.find((x) => x.key === k)
     if (!l) continue
-    const n = normalizeValue(l.values, v)
+    let n = normalizeValue(l.values, fixOcrDigits(v))
+    // Un nivel arábigo puede venir en romanos en un encabezado: «QUAESTIO II».
+    if (n === null && l.values === 'arabic') {
+      const r = fromRoman(v)
+      n = r === null ? null : String(r)
+    }
     if (n === null) return null
     set[k] = n
   }
   return Object.keys(set).length ? set : null
+}
+
+/** Línea de texto: fragmentos a la misma altura, de izquierda a derecha. */
+export interface Line {
+  page: number
+  text: string
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+/** Junta los fragmentos de una hoja en líneas (un número en otro cuerpo de letra queda en su línea). */
+export function joinLines(items: TextItem[]): Line[] {
+  const sorted = [...items].sort((a, b) => a.y + a.height / 2 - (b.y + b.height / 2))
+  const groups: TextItem[][] = []
+  for (const it of sorted) {
+    const c = it.y + it.height / 2
+    const g = groups[groups.length - 1]
+    const ref = g?.[0]
+    if (g && ref && Math.abs(c - (ref.y + ref.height / 2)) <= 0.6 * Math.max(ref.height, it.height)) g.push(it)
+    else groups.push([it])
+  }
+  return groups.map((g) => {
+    g.sort((a, b) => a.x - b.x)
+    let text = ''
+    for (const it of g) text += (text && !/\s$/.test(text) && !/^\s/.test(it.str) ? ' ' : '') + it.str
+    const x = Math.min(...g.map((i) => i.x))
+    const right = Math.max(...g.map((i) => i.x + i.width))
+    const y = Math.min(...g.map((i) => i.y))
+    return { page: g[0]!.page, text: text.replace(/\s+/g, ' ').trim(), x, y, width: right - x, height: Math.max(...g.map((i) => i.height)) }
+  })
+}
+
+function median(xs: number[]): number {
+  return quantile(xs, 0.5)
 }
 
 function findRaw(scheme: Scheme, pages: PageBox[], items: TextItem[], o: Required<DetectOptions>): Raw[] {
@@ -115,12 +158,14 @@ function findRaw(scheme: Scheme, pages: PageBox[], items: TextItem[], o: Require
     inline: new RegExp(`\\[\\s*(?:${m.pattern})\\s*\\]`, 'g'),
     lineStart: new RegExp(`^(?:\\[\\s*(?:${m.pattern})\\s*\\]|\\(\\s*(?:${m.pattern})\\s*\\))`),
   }))
+  const headings = (scheme.headings ?? []).map((h) => ({ level: h.level, re: new RegExp(`^(?:${h.pattern})`, 'i') }))
   const out: Raw[] = []
   for (const box of pages) {
     const top = box.height * o.headerBand
     const bottom = box.height * (1 - o.footerBand)
     const onPage = items.filter((it) => it.page === box.page && it.y >= top && it.y + it.height <= bottom && it.str.trim())
     const body = bodyColumn(onPage, o.minBodyChars)
+    if (headings.length && body) out.push(...findHeadings(scheme, headings, box, onPage, body, o))
     for (const it of onPage) {
       const original = it.str.trim()
       const s = fixOcrDigits(original)
@@ -166,6 +211,43 @@ function findRaw(scheme: Scheme, pages: PageBox[], items: TextItem[], o: Require
   return out.sort((a, b) => a.page - b.page || a.y - b.y || a.x - b.x)
 }
 
+/**
+ * Encabezados: líneas cortas, con letra más grande que el cuerpo o centradas,
+ * que empiezan con el patrón de un encabezado del esquema.
+ */
+function findHeadings(
+  scheme: Scheme,
+  headings: { level: string; re: RegExp }[],
+  box: PageBox,
+  onPage: TextItem[],
+  body: { left: number; right: number },
+  o: Required<DetectOptions>,
+): Raw[] {
+  const out: Raw[] = []
+  const bodyHeight = median(onPage.filter((it) => it.str.trim().length >= o.minBodyChars).map((it) => it.height))
+  const bodyWidth = body.right - body.left
+  const bodyCenter = (body.left + body.right) / 2
+  for (const line of joinLines(onPage)) {
+    if (line.text.length > 80) continue
+    const big = line.height >= bodyHeight * 1.2
+    const centered = line.width < bodyWidth * 0.7 && Math.abs(line.x + line.width / 2 - bodyCenter) < bodyWidth * 0.1
+    if (!big && !centered) continue
+    for (const h of headings) {
+      const hit = h.re.exec(line.text)
+      if (!hit) continue
+      const value = hit.groups?.[h.level]
+      const set = value === undefined ? {} : setFrom(scheme, { [h.level]: value })
+      // Un número ilegible no descarta el encabezado: se infiere el siguiente.
+      out.push({
+        page: box.page, y: line.y / box.height, x: line.x, set: set ?? {}, where: 'heading', found: hit[0].trim(),
+        ...(set && Object.keys(set).length ? {} : { infer: h.level }),
+      })
+      break
+    }
+  }
+  return out
+}
+
 /** Clave comparable de una referencia: el orden de cada nivel (−1 si no tiene valor). */
 function key(scheme: Scheme, ref: Ref): number[] {
   return scheme.levels.map((l) => (ref[l.key] === undefined ? -1 : (ordinal(l.values, ref[l.key]!) ?? -1)))
@@ -200,8 +282,14 @@ function step(scheme: Scheme, a: Ref, b: Ref): number {
   if (d < 0) return 0
   const diff = kb[d]! - ka[d]!
   if (ka[d] === -1) return 1 // aparece un nivel que no tenía valor
-  // Si cambió un nivel superior, los inferiores deberían empezar de nuevo.
-  const lowerFresh = scheme.levels.slice(d + 1).every((l, j) => kb[d + 1 + j] === -1 || kb[d + 1 + j]! <= (Array.isArray(l.values) ? 0 : 1) || kb[d + 1 + j] === ka[d + 1 + j]! + 1)
+  // Si cambió un nivel superior, los inferiores deberían empezar de nuevo, o
+  // seguir igual si su numeración es continua (el número de la Ordinatio a
+  // través de las cuestiones).
+  const lowerFresh = scheme.levels.slice(d + 1).every((l, j) => {
+    const vb = kb[d + 1 + j]!
+    const va = ka[d + 1 + j]!
+    return vb === -1 || vb <= (Array.isArray(l.values) ? 0 : 1) || vb === va || vb === va + 1
+  })
   return lowerFresh ? diff : diff + 1
 }
 
@@ -244,8 +332,11 @@ export function detect(
       tentative.push([])
       bounds.push({ low: k, high: null })
     } else {
+      if (e.raw.infer) e.raw.set = inferNext(scheme, state, e.raw.infer)
       const ref = applySet(scheme, state, e.raw.set)
-      if (fromFixed && cmpKey(key(scheme, ref), key(scheme, state)) === 0) continue // ya lo dice un ancla
+      const same = cmpKey(key(scheme, ref), key(scheme, state)) === 0
+      // Lo que ya dice un ancla, o un encabezado que repite otro («Questions 5 and 6» … «Question 5»), sobra.
+      if (same && (fromFixed || e.raw.where === 'heading')) continue
       tentative[tentative.length - 1]!.push({ idx: e.idx, before: state, ref })
       state = ref
       fromFixed = false
@@ -278,7 +369,7 @@ export function detect(
     before.push(state)
     if (ok) {
       const st = step(scheme, state, ref)
-      confidence = (r.where !== 'margin' ? 0.7 : 0.6) + (st === 1 ? 0.3 : st <= 3 ? 0.1 : 0)
+      confidence = r.infer ? 0.5 : (r.where !== 'margin' ? 0.7 : 0.6) + (st === 1 ? 0.3 : st <= 3 ? 0.1 : 0)
       state = ref
     }
     out.push({
@@ -289,7 +380,7 @@ export function detect(
   }
   out.forEach((c, i) => {
     if (c.status !== 'suspicious') return
-    const next = out.slice(i + 1).find((x) => x.status === 'ok')
+    const next = out.slice(i + 1).find((x) => x.status === 'ok' && x.where !== 'heading')
     const fix = next && expectedBetween(scheme, before[i]!, next.ref)
     if (fix) c.correction = fix
   })
@@ -306,7 +397,11 @@ function expectedBetween(scheme: Scheme, prev: Ref, next: Ref): Candidate['corre
   for (let i = scheme.levels.length - 1; i >= 0; i--) if (prev[scheme.levels[i]!.key] !== undefined) { d = i; break }
   if (d < 0) return undefined
   const l = scheme.levels[d]!
-  if (scheme.levels.slice(0, d).some((u) => prev[u.key] !== next[u.key]) || next[l.key] === undefined) return undefined
+  // Deben coincidir los niveles que reinician este (en la Ordinatio, hasta la
+  // distinción): el número corre a través de las cuestiones.
+  const r = l.resetOn !== undefined ? l.resetOn : d > 0 ? scheme.levels[d - 1]!.key : null
+  const upto = r === null ? -1 : scheme.levels.findIndex((u) => u.key === r)
+  if (scheme.levels.slice(0, upto + 1).some((u) => prev[u.key] !== next[u.key]) || next[l.key] === undefined) return undefined
   const a = ordinal(l.values, prev[l.key]!)
   const b = ordinal(l.values, next[l.key]!)
   if (a === null || b === null || b - a !== 2) return undefined
@@ -315,6 +410,15 @@ function expectedBetween(scheme: Scheme, prev: Ref, next: Ref): Candidate['corre
   const set = { [l.key]: v }
   const ref = applySet(scheme, prev, set)
   return { set, ref, text: formatRef(scheme, ref) }
+}
+
+/** Valor siguiente del nivel, o el primero si no tiene. */
+function inferNext(scheme: Scheme, state: Ref, levelKey: string): Record<string, string> {
+  const l = scheme.levels.find((x) => x.key === levelKey)
+  if (!l) return {}
+  const cur = state[levelKey]
+  const v = cur === undefined ? firstValue(l.values) : nextValue(l.values, cur)?.value
+  return v ? { [levelKey]: v } : {}
 }
 
 /** Añade al mapa los candidatos aceptados, como anclas detectadas. */

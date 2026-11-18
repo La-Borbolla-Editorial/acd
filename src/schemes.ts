@@ -2,7 +2,10 @@
 
 import type { Scheme } from './types.js'
 
-const LETTERS_AE = ['a', 'b', 'c', 'd', 'e'] as const
+/** Número en un encabezado: arábigo o romano, con las confusiones del OCR. */
+const NUM = String.raw`[\dlI|!]{1,3}\b|[IVXLivxl]{1,6}\b`
+
+const LETTERS_AE =['a', 'b', 'c', 'd', 'e'] as const
 const COLUMNS_AB = ['a', 'b'] as const
 
 /**
@@ -21,6 +24,11 @@ export const ordinatio: Scheme = {
     { key: 'n', label: 'n.', values: 'arabic', resetOn: 'dist' },
   ],
   markers: [{ pattern: String.raw`(?:n\.\s*)?(?<n>\d{1,4})` }],
+  headings: [
+    { level: 'dist', pattern: String.raw`\[?\s*Distinct(?:io|ion)\s+(?<dist>${NUM})` },
+    { level: 'pars', pattern: String.raw`\[?\s*(?:Pars|Part)\s+(?<pars>${NUM})` },
+    { level: 'q', pattern: String.raw`\[?\s*(?:Quaestio(?:nes)?|Questions?)(?:\s+(?<q>${NUM}))?` },
+  ],
 }
 
 /** Platón, paginación de Stephanus: «327a», con línea opcional (Burnet): «327a3». */
