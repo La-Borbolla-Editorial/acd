@@ -6,8 +6,8 @@
 
 import { getScheme } from './map.js'
 import { anchorsOf, applySet, comparePos, formatRef } from './resolve.js'
-import type { Anchor, CanonMap, Ref, Scheme } from './types.js'
-import { normalizeValue, ordinal } from './values.js'
+import type { Anchor, CanonMap, MarkerPlace, Ref, Scheme } from './types.js'
+import { normalizeValue, ordinal, valueAt } from './values.js'
 
 /** Fragmento de texto. Coordenadas en unidades del PDF, con origen ARRIBA a la izquierda. */
 export interface TextItem {
@@ -41,9 +41,11 @@ export interface Candidate extends Anchor {
   confidence: number
   /** `suspicious`: rompe la secuencia; hay que revisarla antes de aceptarla. */
   status: 'ok' | 'suspicious'
-  where: 'margin' | 'inline'
+  where: MarkerPlace
   /** Texto encontrado en el PDF. */
   found: string
+  /** En una marca sospechosa: el valor que debería ir ahí, si el hueco lo deja claro. */
+  correction?: { set: Record<string, string>; ref: Ref; text: string }
   /** Referencia completa que regiría desde ahí. */
   ref: Ref
   text: string
@@ -70,8 +72,26 @@ interface Raw {
   y: number
   x: number
   set: Record<string, string>
-  where: 'margin' | 'inline'
+  where: MarkerPlace
   found: string
+}
+
+/**
+ * Corrige confusiones típicas del OCR en marcas numéricas: «(I)» → «(1)»,
+ * «l0» → «10». Solo toca grupos formados únicamente por dígitos y esas letras,
+ * y que contengan algún dígito o sean una sola letra.
+ */
+export function fixOcrDigits(s: string): string {
+  const fix = (g: string) => g.replace(/\s+/g, '').replace(/[lI|![]/g, '1').replace(/[Oo]/g, '0').replace(/[EB]/g, '8').replace(/S/g, '5')
+  // Contenido de corchetes o paréntesis: «(I)», «(4!)», «([19)», «( IE8)». Con más
+  // de un carácter hace falta algún dígito; solo, únicamente lo que parece un 1.
+  let out = s.replace(/([[(])(\s*[\dlIO|![EBSo](?:\s?[\dlIO|![EBSo]){0,3}\s*)([\])])/g, (m, a: string, g: string, b: string) => {
+    const t = g.trim()
+    return /\d/.test(t) || /^[lI|!]$/.test(t) ? a + fix(t) + b : m
+  })
+  // Fragmento entero (marca marginal): «l2».
+  if (/^[\dlIO|]{1,4}$/.test(out.trim()) && /\d/.test(out)) out = fix(out.trim())
+  return out
 }
 
 /** Valores de los grupos con nombre, normalizados; `null` si alguno no vale. */
@@ -90,9 +110,10 @@ function setFrom(scheme: Scheme, groups: Record<string, string | undefined>): Re
 
 function findRaw(scheme: Scheme, pages: PageBox[], items: TextItem[], o: Required<DetectOptions>): Raw[] {
   const markers = (scheme.markers ?? []).map((m) => ({
-    where: m.where ?? ['margin', 'inline'],
+    where: m.where ?? (['margin', 'inline', 'lineStart'] as MarkerPlace[]),
     whole: new RegExp(`^(?:${m.pattern})$`),
     inline: new RegExp(`\\[\\s*(?:${m.pattern})\\s*\\]`, 'g'),
+    lineStart: new RegExp(`^(?:\\[\\s*(?:${m.pattern})\\s*\\]|\\(\\s*(?:${m.pattern})\\s*\\))`),
   }))
   const out: Raw[] = []
   for (const box of pages) {
@@ -101,7 +122,8 @@ function findRaw(scheme: Scheme, pages: PageBox[], items: TextItem[], o: Require
     const onPage = items.filter((it) => it.page === box.page && it.y >= top && it.y + it.height <= bottom && it.str.trim())
     const body = bodyColumn(onPage, o.minBodyChars)
     for (const it of onPage) {
-      const s = it.str.trim()
+      const original = it.str.trim()
+      const s = fixOcrDigits(original)
       const y = it.y / box.height
       const inMargin = body !== null && (it.x + it.width <= body.left - o.marginGap || it.x >= body.right + o.marginGap)
       if (inMargin) {
@@ -109,13 +131,30 @@ function findRaw(scheme: Scheme, pages: PageBox[], items: TextItem[], o: Require
           if (!m.where.includes('margin')) continue
           const g = m.whole.exec(s)?.groups
           const set = g && setFrom(scheme, g)
-          if (set) { out.push({ page: box.page, y, x: it.x, set, where: 'margin', found: s }); break }
+          if (set) { out.push({ page: box.page, y, x: it.x, set, where: 'margin', found: original }); break }
         }
         continue
+      }
+      // Al principio de una línea: el fragmento empieza en el borde izquierdo
+      // del cuerpo o en la sangría de párrafo, no a media línea.
+      const atLineStart = body === null || it.x <= body.left + 40
+      let startHit = false
+      if (atLineStart) {
+        for (const m of markers) {
+          if (!m.where.includes('lineStart')) continue
+          const hit = m.lineStart.exec(s)
+          const set = hit?.groups && setFrom(scheme, hit.groups)
+          if (hit && set) {
+            out.push({ page: box.page, y, x: it.x, set, where: 'lineStart', found: original.slice(0, hit[0].length) })
+            startHit = true
+            break
+          }
+        }
       }
       for (const m of markers) {
         if (!m.where.includes('inline')) continue
         for (const hit of s.matchAll(m.inline)) {
+          if (startHit && hit.index === 0) continue // ya contada como inicio de línea
           const set = hit.groups && setFrom(scheme, hit.groups)
           // Posición aproximada dentro del fragmento, proporcional a los caracteres.
           const x = it.x + (it.width * (hit.index ?? 0)) / Math.max(1, s.length)
@@ -169,8 +208,9 @@ function step(scheme: Scheme, a: Ref, b: Ref): number {
 /**
  * Detecta marcas del esquema y las devuelve como anclas propuestas, en orden
  * de lectura. Las anclas ya presentes en el mapa se toman como ciertas: una
- * marca que las contradice queda como sospechosa. Las marcas que no cambian
- * nada (repiten lo vigente) se omiten.
+ * marca que las contradice queda como sospechosa. Una marca que repite lo
+ * que fija un ancla del mapa se omite; si repite otra marca detectada, es
+ * sospechosa (suele ser un error del OCR: «(105)» dos veces).
  */
 export function detect(
   map: Pick<CanonMap, 'schemes' | 'anchors'>,
@@ -194,18 +234,21 @@ export function detect(
   const tentative: { idx: number; before: Ref; ref: Ref }[][] = [[]]
   const bounds: { low: number[] | null; high: number[] | null }[] = [{ low: null, high: null }]
   let state: Ref = {}
+  let fromFixed = true
   for (const e of events) {
     if ('fixed' in e) {
       state = applySet(scheme, state, e.fixed.set)
+      fromFixed = true
       const k = key(scheme, state)
       bounds[bounds.length - 1]!.high = k
       tentative.push([])
       bounds.push({ low: k, high: null })
     } else {
       const ref = applySet(scheme, state, e.raw.set)
-      if (cmpKey(key(scheme, ref), key(scheme, state)) === 0) continue // no cambia nada
+      if (fromFixed && cmpKey(key(scheme, ref), key(scheme, state)) === 0) continue // ya lo dice un ancla
       tentative[tentative.length - 1]!.push({ idx: e.idx, before: state, ref })
       state = ref
+      fromFixed = false
     }
   }
 
@@ -223,6 +266,7 @@ export function detect(
 
   // Segunda pasada: referencias definitivas heredando solo de lo aceptado.
   const out: Candidate[] = []
+  const before: Ref[] = []
   state = {}
   for (const e of events) {
     if ('fixed' in e) { state = applySet(scheme, state, e.fixed.set); continue }
@@ -231,9 +275,10 @@ export function detect(
     const ref = applySet(scheme, state, r.set)
     const ok = accepted.has(e.idx)
     let confidence = 0.2
+    before.push(state)
     if (ok) {
       const st = step(scheme, state, ref)
-      confidence = (r.where === 'inline' ? 0.7 : 0.6) + (st === 1 ? 0.3 : st <= 3 ? 0.1 : 0)
+      confidence = (r.where !== 'margin' ? 0.7 : 0.6) + (st === 1 ? 0.3 : st <= 3 ? 0.1 : 0)
       state = ref
     }
     out.push({
@@ -242,7 +287,34 @@ export function detect(
       status: ok ? 'ok' : 'suspicious', where: r.where, found: r.found, ref, text: formatRef(scheme, ref),
     })
   }
+  out.forEach((c, i) => {
+    if (c.status !== 'suspicious') return
+    const next = out.slice(i + 1).find((x) => x.status === 'ok')
+    const fix = next && expectedBetween(scheme, before[i]!, next.ref)
+    if (fix) c.correction = fix
+  })
   return out
+}
+
+/**
+ * Si entre dos referencias aceptadas cabe exactamente un valor en el nivel más
+ * bajo (n. 7 … n. 9), ese valor es la corrección probable de una marca
+ * sospechosa que está en medio.
+ */
+function expectedBetween(scheme: Scheme, prev: Ref, next: Ref): Candidate['correction'] {
+  let d = -1
+  for (let i = scheme.levels.length - 1; i >= 0; i--) if (prev[scheme.levels[i]!.key] !== undefined) { d = i; break }
+  if (d < 0) return undefined
+  const l = scheme.levels[d]!
+  if (scheme.levels.slice(0, d).some((u) => prev[u.key] !== next[u.key]) || next[l.key] === undefined) return undefined
+  const a = ordinal(l.values, prev[l.key]!)
+  const b = ordinal(l.values, next[l.key]!)
+  if (a === null || b === null || b - a !== 2) return undefined
+  const v = valueAt(l.values, a + 1)
+  if (v === null) return undefined
+  const set = { [l.key]: v }
+  const ref = applySet(scheme, prev, set)
+  return { set, ref, text: formatRef(scheme, ref) }
 }
 
 /** Añade al mapa los candidatos aceptados, como anclas detectadas. */

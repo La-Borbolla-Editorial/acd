@@ -31,10 +31,17 @@ por su hash.
    siguiente (n. 29 → n. 30; 327e → 328a) y la alternativa de subir el nivel
    superior (q. 1 n. 29 → q. 2 n. 30).
 2. **Detección.** `detect(mapa, esquema, hojas, fragmentos)` busca las marcas
-   del esquema en el margen y entre corchetes dentro del texto. Ignora
-   cabeceras y pies, y comprueba que la secuencia crezca: lo que la rompe, o
-   contradice un ancla manual, queda como `suspicious`. Ninguna propuesta entra
-   al mapa hasta que se acepta (`acceptCandidates`).
+   del esquema en el margen, entre corchetes dentro del texto y entre
+   paréntesis o corchetes al principio de línea («(29) Ad primum…»). Ignora
+   cabeceras y pies, corrige errores típicos del OCR («(I)», «(4!)», «( IE8)») y
+   comprueba que la secuencia crezca: lo que la rompe, repite otra marca o
+   contradice un ancla manual queda como `suspicious`, con una `correction`
+   cuando el hueco la deja clara (entre n. 7 y n. 9, n. 8). Ninguna propuesta
+   entra al mapa hasta que se acepta (`acceptCandidates`).
+
+   Con la traducción de Spade de *Ordinatio* II d. 3 p. 1 (55 hojas, 212
+   párrafos) detecta 205 de los 208 que tiene el PDF; los otros 3 quedan
+   sospechosos con la corrección correcta.
 
 `fromPdfjs` convierte lo que devuelve `page.getTextContent()` de pdf.js a los
 fragmentos que espera `detect`.
@@ -61,10 +68,13 @@ definir otros.
 
 - Confirmar con la edición Vaticana que el número de la *Ordinatio* se reinicia
   con la distinción, y cómo tratar «q. un.».
-- Detectar encabezados estructurales («Quaestio 2», «§ 43»).
+- Detectar encabezados estructurales («[Question 2», «Quaestio 2», «§ 43»):
+  hoy el cambio de cuestión se marca a mano.
 - Hojas a dos columnas en la detección.
-- Pruebas con PDFs reales: van en `fixtures/private/`, que git ignora (tienen
-  derechos).
+- Más PDFs reales. Van en `fixtures/private/`, que git ignora (tienen
+  derechos); `test/private.test.ts` se salta si no están.
+  `node scripts/pdf-items.mjs archivo.pdf` vuelca los fragmentos de texto
+  (requiere `npm run build`).
 
 ## Desarrollo
 

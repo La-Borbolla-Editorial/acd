@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { acceptCandidates, addAnchor, createMap, detect, fromPdfjs, ordinatio, refAt, stephanus, type PageBox, type TextItem } from '../src/index.js'
+import { acceptCandidates, addAnchor, createMap, detect, fixOcrDigits, fromPdfjs, ordinatio, refAt, stephanus, type PageBox, type TextItem } from '../src/index.js'
 
 const W = 600
 const H = 800
@@ -52,10 +52,42 @@ test('un salto en la numeración baja la confianza', () => {
 })
 
 test('marcas entre corchetes dentro del texto', () => {
-  const c = detect(start(), 'ordinatio', boxes(1), page(1, {}, { 3: '[29]', 18: '[n. 30]' }))
+  const c = detect(start(), 'ordinatio', boxes(1), page(1, {}, { 3: 'dicitur [29]', 18: 'patet [n. 30]' }))
   expect(c.map((x) => [x.where, x.text, x.confidence])).toEqual([
     ['inline', 'II d. 3 q. 1 n. 29', 1],
     ['inline', 'II d. 3 q. 1 n. 30', 1],
+  ])
+})
+
+test('marcas al principio de línea, entre paréntesis o corchetes; a media línea, los paréntesis no cuentan', () => {
+  const c = detect(start(), 'ordinatio', boxes(1), page(1, {}, { 3: '(29)', 10: 'ut dictum est (31)', 18: '[30]' }))
+  expect(c.map((x) => [x.where, x.found, x.text])).toEqual([
+    ['lineStart', '(29)', 'II d. 3 q. 1 n. 29'],
+    ['lineStart', '[30]', 'II d. 3 q. 1 n. 30'],
+  ])
+})
+
+test('errores típicos del OCR en los números', () => {
+  expect(fixOcrDigits('(I) With Distinction 3')).toBe('(1) With Distinction 3')
+  expect(fixOcrDigits('(4!) From what')).toBe('(41) From what')
+  expect(fixOcrDigits('([19) I do not')).toBe('(119) I do not')
+  expect(fixOcrDigits('( IE8) Therefore')).toBe('(188) Therefore')
+  expect(fixOcrDigits('(13E)The same')).toBe('(138)The same')
+  expect(fixOcrDigits('l2')).toBe('12')
+  // No toca lo que no parece un número.
+  expect(fixOcrDigits('(SE) y (Is)')).toBe('(SE) y (Is)')
+  const c = detect(start(), 'ordinatio', boxes(1), page(1, {}, { 3: '(29)', 10: '(3O)The', 18: '(3l)' }))
+  expect(c.map((x) => x.text)).toEqual(['II d. 3 q. 1 n. 29', 'II d. 3 q. 1 n. 30', 'II d. 3 q. 1 n. 31'])
+})
+
+test('una marca repetida es sospechosa y se propone el valor del hueco', () => {
+  const c = detect(start(), 'ordinatio', boxes(1), page(1, {}, { 3: '(29)', 10: '(29)', 18: '(31)', 22: '(3)', 26: '(33)' }))
+  expect(c.map((x) => [x.found, x.status, x.correction?.text])).toEqual([
+    ['(29)', 'ok', undefined],
+    ['(29)', 'suspicious', 'II d. 3 q. 1 n. 30'],
+    ['(31)', 'ok', undefined],
+    ['(3)', 'suspicious', 'II d. 3 q. 1 n. 32'],
+    ['(33)', 'ok', undefined],
   ])
 })
 

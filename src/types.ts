@@ -48,9 +48,18 @@ export interface Level {
  */
 export interface Marker {
   pattern: string
-  /** Dónde buscarlo. Por omisión, en el margen y entre corchetes dentro del texto. */
-  where?: ('margin' | 'inline')[]
+  /**
+   * Dónde buscarlo. Por omisión, todos:
+   * - `margin`: el fragmento entero, fuera del cuerpo del texto («29», «327a»).
+   * - `inline`: entre corchetes en cualquier punto del texto («[29]»).
+   * - `lineStart`: entre corchetes o paréntesis al principio de una línea
+   *   («(29) Ad primum…»). Los paréntesis solo cuentan ahí: a media línea
+   *   suelen ser otra cosa.
+   */
+  where?: MarkerPlace[]
 }
+
+export type MarkerPlace = 'margin' | 'inline' | 'lineStart'
 
 export interface Scheme {
   id: string
