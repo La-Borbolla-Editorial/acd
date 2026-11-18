@@ -1,0 +1,24 @@
+{
+  "name": "acd",
+  "version": "0.1.0",
+  "description": "Mapa canónico de un PDF: de una posición en el PDF a su referencia canónica (II d. 3 n. 29, 327a, 1094a1).",
+  "license": "MIT",
+  "author": "José Pablo Iglesias",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
+}

@@ -1,0 +1,6 @@
+node_modules
+dist
+# PDFs reales con derechos: solo locales, nunca al repo.
+fixtures/private/*
+!fixtures/private/.gitkeep
+.DS_Store
