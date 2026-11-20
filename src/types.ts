@@ -97,6 +97,11 @@ export interface Anchor extends Position {
   origin: 'manual' | 'detected'
   /** Confianza de la detección, de 0 a 1. */
   confidence?: number
+  /**
+   * Fin del texto canónico: desde aquí no rige ninguna referencia (notas,
+   * índices, apéndices) hasta el ancla siguiente. Su `set` va vacío.
+   */
+  stop?: boolean
 }
 
 export const FORMAT = 'acd/0.1'

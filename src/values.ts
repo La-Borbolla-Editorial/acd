@@ -68,3 +68,33 @@ export function normalizeValue(kind: ValueKind, value: string): string | null {
   const o = kind === 'arabic' ? ordinal(kind, v) : fromRoman(v)
   return o === null ? null : valueAt(kind, o)
 }
+
+// Números escritos en palabras, como aparecen en encabezados: «Libro segundo»,
+// «Book Two», «Distinctio tertia». Castellano, inglés y latín, del 1 al 20.
+const WORDS: Record<string, number> = {}
+function words(n: number, ...ws: string[]) { for (const w of ws) WORDS[w] = n }
+words(1, 'primero', 'primer', 'primera', 'uno', 'una', 'one', 'first', 'primus', 'prima', 'primum', 'unus', 'unica', 'unicus')
+words(2, 'segundo', 'segunda', 'dos', 'two', 'second', 'secundus', 'secunda', 'secundum', 'duo')
+words(3, 'tercero', 'tercer', 'tercera', 'tres', 'three', 'third', 'tertius', 'tertia', 'tertium')
+words(4, 'cuarto', 'cuarta', 'cuatro', 'four', 'fourth', 'quartus', 'quarta', 'quartum', 'quattuor')
+words(5, 'quinto', 'quinta', 'cinco', 'five', 'fifth', 'quintus', 'quinque')
+words(6, 'sexto', 'sexta', 'seis', 'six', 'sixth', 'sextus', 'sex')
+words(7, 'séptimo', 'septimo', 'séptima', 'septima', 'siete', 'seven', 'seventh', 'septimus', 'septem')
+words(8, 'octavo', 'octava', 'ocho', 'eight', 'eighth', 'octavus', 'octo')
+words(9, 'noveno', 'novena', 'nono', 'nueve', 'nine', 'ninth', 'nonus', 'nona', 'novem')
+words(10, 'décimo', 'decimo', 'décima', 'decima', 'diez', 'ten', 'tenth', 'decimus', 'decem')
+words(11, 'undécimo', 'undecimo', 'decimoprimero', 'once', 'eleven', 'eleventh', 'undecimus', 'undecima')
+words(12, 'duodécimo', 'duodecimo', 'decimosegundo', 'doce', 'twelve', 'twelfth', 'duodecimus', 'duodecima')
+words(13, 'decimotercero', 'trece', 'thirteen', 'thirteenth', 'tertius decimus')
+words(14, 'decimocuarto', 'catorce', 'fourteen', 'fourteenth')
+words(15, 'decimoquinto', 'quince', 'fifteen', 'fifteenth')
+words(16, 'decimosexto', 'dieciséis', 'dieciseis', 'sixteen', 'sixteenth')
+words(17, 'decimoséptimo', 'decimoseptimo', 'diecisiete', 'seventeen', 'seventeenth')
+words(18, 'decimoctavo', 'dieciocho', 'eighteen', 'eighteenth')
+words(19, 'decimonoveno', 'decimonono', 'diecinueve', 'nineteen', 'nineteenth')
+words(20, 'vigésimo', 'vigesimo', 'veinte', 'twenty', 'twentieth', 'vicesimus', 'vicesima')
+
+/** Número escrito en palabras, o `null`. */
+export function wordNumber(s: string): number | null {
+  return WORDS[s.trim().toLowerCase()] ?? null
+}

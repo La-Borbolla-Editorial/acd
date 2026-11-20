@@ -155,7 +155,7 @@ function refresh(): void {
   for (const a of anchors) {
     const v = views[a.page - 1]
     if (!v) continue
-    addPin(v, a.y, formatRef(scheme, a.set), `anchor ${a.origin}`, 'anchor', () => anchorMenu(a))
+    addPin(v, a.y, a.stop ? 'fin del texto' : formatRef(scheme, a.set), `anchor ${a.origin}${a.stop ? ' stop' : ''}`, 'anchor', () => anchorMenu(a))
   }
   for (const c of candidates) {
     const v = views[c.page - 1]
@@ -165,9 +165,11 @@ function refresh(): void {
   }
   // Resumen del mapa
   const manual = anchors.filter((a) => a.origin === 'manual').length
-  $('map-summary').textContent = doc
-    ? `${anchors.length} anclas en «${scheme.name}» (${manual} a mano, ${anchors.length - manual} detectadas).`
-    : 'Abre un PDF para empezar.'
+  $('map-summary').textContent = !doc
+    ? 'Abre un PDF para empezar.'
+    : anchors.length === 0
+      ? 'Sin anclas. Marca primero dónde empieza el texto: la detección busca desde la primera ancla, y así se salta el estudio introductorio.'
+      : `${anchors.length} anclas en «${scheme.name}» (${manual} a mano, ${anchors.length - manual} detectadas). La detección busca desde la primera.`
   $('clear-anchors').hidden = anchors.length === 0
   // Candidatos
   $('cand-section').hidden = candidates.length === 0 && !text
@@ -265,6 +267,11 @@ function row(...buttons: HTMLElement[]): HTMLDivElement {
 
 function anchorMenu(a: Anchor): void {
   const scheme = getScheme(map, schemeId)
+  if (a.stop) {
+    setPop('Fin del texto', 'Desde aquí no rige ninguna referencia, ni se detecta nada, hasta el ancla siguiente.', `Hoja ${a.page}`,
+      row(button('Borrar', () => { map = removeAnchor(map, a.id!); changed() }, 'danger')))
+    return
+  }
   setPop(
     formatRef(scheme, a.set),
     `Desde aquí rige ${formatRef(scheme, refAt(map, schemeId, a)) || '—'}.`,
@@ -298,11 +305,11 @@ function placeName(w: Candidate['where']): string {
 }
 
 /** Campo para escribir una referencia, con las sugerencias del método 1. */
-function editor(pos: Position, o: { title: string; initial: string; save: (set: Record<string, string>) => void; suggestions?: { text: string; set: Record<string, string> }[] }): void {
+function editor(pos: Position, o: { title: string; initial: string; save: (set: Record<string, string>) => void; suggestions?: { text: string; set: Record<string, string> }[]; onStop?: () => void }): void {
   const scheme = getScheme(map, schemeId)
   const input = document.createElement('input')
   input.value = o.initial
-  input.placeholder = scheme.id === 'ordinatio' ? 'II d. 3 q. 1 n. 29' : scheme.id === 'stephanus' ? '327a' : '…'
+  input.placeholder = { ordinatio: 'II d. 3 q. 1 n. 29', stephanus: 'I, 327a', bekker: 'I 1, 1094a1', paragraphs: '§ 43' }[scheme.id] ?? '…'
   const err = document.createElement('p')
   err.className = 'err'
   const commit = (value: string) => {
@@ -319,7 +326,8 @@ function editor(pos: Position, o: { title: string; initial: string; save: (set: 
   const sugg = document.createElement('div')
   sugg.className = 'sugg'
   for (const s of o.suggestions ?? []) sugg.append(button(`${formatRef(scheme, s.set)}  →  ${s.text}`, () => commit(formatRef(scheme, s.set))))
-  setPop(o.title, input, err, ...(o.suggestions?.length ? [sugg] : []), row(button('Guardar', () => commit(input.value), 'primary'), button('Cancelar', closePop)))
+  const stop = o.onStop ? [button('Aquí termina el texto', () => { o.onStop!(); changed() })] : []
+  setPop(o.title, input, err, ...(o.suggestions?.length ? [sugg] : []), row(button('Guardar', () => commit(input.value), 'primary'), button('Cancelar', closePop), ...stop))
   if (!popAnchor) placePop({ x: pageClient(pos).x, y: pageClient(pos).y })
   input.select()
 }
@@ -346,6 +354,7 @@ function onPageClick(v: PageView, e: MouseEvent): void {
     initial: sugg[0] ? formatRef(getScheme(map, schemeId), sugg[0].set) : '',
     suggestions: sugg,
     save: (set) => { map = addAnchor(map, { scheme: schemeId, ...pos, set, origin: 'manual' }) },
+    onStop: () => { map = addAnchor(map, { scheme: schemeId, ...pos, set: {}, origin: 'manual', stop: true }) },
   })
   placePop({ x: e.clientX, y: e.clientY })
 }

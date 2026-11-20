@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { addAnchor, bekker, cite, createMap, formatRange, ordinatio, parseRef, refAt, stephanus, suggestAt, validateMap, type CanonMap } from '../src/index.js'
+import { addAnchor, bekker, cite, createMap, formatRange, formatRef, ordinatio, parseRef, refAt, stephanus, suggestAt, validateMap, type CanonMap } from '../src/index.js'
 
 function ord(...anchors: [number, number, Record<string, string>][]): CanonMap {
   let m = createMap([ordinatio, stephanus, bekker])
@@ -80,4 +80,30 @@ test('leer una referencia escrita a mano', () => {
   expect(parseRef(bekker, '1094a1')).toEqual({ page: '1094', col: 'a', line: '1' })
   expect(parseRef(ordinatio, 'q. dos')).toBeNull()
   expect(parseRef(ordinatio, '')).toBeNull()
+})
+
+test('libro y capítulo en Platón y Aristóteles', () => {
+  expect(parseRef(stephanus, 'II, 368a')).toEqual({ book: 'II', page: '368', sect: 'a' })
+  expect(parseRef(stephanus, 'ii 368a')).toEqual({ book: 'II', page: '368', sect: 'a' })
+  expect(parseRef(bekker, 'IV 2, 1003a33')).toEqual({ book: 'IV', chapter: '2', page: '1003', col: 'a', line: '33' })
+  expect(parseRef(bekker, '1003a33')).toEqual({ page: '1003', col: 'a', line: '33' })
+  expect(formatRef(stephanus, { book: 'II', page: '368', sect: 'a' })).toBe('II, 368a')
+  expect(formatRef(bekker, { book: 'IV', chapter: '2', page: '1003', col: 'a', line: '33' })).toBe('IV 2, 1003a33')
+  // La página no se reinicia con el libro.
+  let m = createMap([stephanus])
+  m = addAnchor(m, { scheme: 'stephanus', page: 1, y: 0.1, set: { book: 'I', page: '354', sect: 'c' }, origin: 'manual' })
+  m = addAnchor(m, { scheme: 'stephanus', page: 2, y: 0.1, set: { book: 'II' }, origin: 'manual' })
+  m = addAnchor(m, { scheme: 'stephanus', page: 2, y: 0.2, set: { page: '357', sect: 'a' }, origin: 'manual' })
+  expect(refAt(m, 'stephanus', { page: 2, y: 0.15 })).toEqual({ book: 'II', page: '354', sect: 'c' })
+  expect(cite(m, 'stephanus', { page: 1, y: 0.5 }, { page: 2, y: 0.5 })!.text).toBe('I, 354c–II, 357a')
+})
+
+test('un ancla de fin: después no rige ninguna referencia', () => {
+  let m = createMap([stephanus])
+  m = addAnchor(m, { scheme: 'stephanus', page: 1, y: 0.1, set: { page: '621', sect: 'd' }, origin: 'manual' })
+  m = addAnchor(m, { scheme: 'stephanus', page: 2, y: 0.5, set: {}, origin: 'manual', stop: true })
+  expect(refAt(m, 'stephanus', { page: 2, y: 0.4 })).toEqual({ page: '621', sect: 'd' })
+  expect(refAt(m, 'stephanus', { page: 2, y: 0.6 })).toEqual({})
+  expect(cite(m, 'stephanus', { page: 3, y: 0.1 }, { page: 3, y: 0.2 })).toBeNull()
+  expect(validateMap(m)).toEqual([])
 })

@@ -3,7 +3,13 @@
 import type { Scheme } from './types.js'
 
 /** Número en un encabezado: arábigo o romano, con las confusiones del OCR. */
-const NUM = String.raw`[\dlI|!]{1,3}\b|[IVXLivxl]{1,6}\b`
+const NUM = String.raw`[\dlI|!]{1,3}\b|[IVXLivxl]{1,6}\b|\p{L}+`
+
+/** Encabezados de libro: «Libro II», «BOOK TWO», «Liber secundus», o un romano solo y centrado («II»). */
+const BOOK_HEADINGS = [
+  { level: 'book', pattern: String.raw`(?:Libro|Book|Liber)\s+(?<book>${NUM})` },
+  { level: 'book', pattern: String.raw`(?<book>[IVX]{1,4})\.?\s*$` },
+]
 
 const LETTERS_AE =['a', 'b', 'c', 'd', 'e'] as const
 const COLUMNS_AB = ['a', 'b'] as const
@@ -31,12 +37,17 @@ export const ordinatio: Scheme = {
   ],
 }
 
-/** Platón, paginación de Stephanus: «327a», con línea opcional (Burnet): «327a3». */
+/**
+ * Platón, paginación de Stephanus: «327a», con línea opcional (Burnet): «327a3».
+ * El libro (República, Leyes) es opcional y la página no se reinicia con él:
+ * «II, 368a».
+ */
 export const stephanus: Scheme = {
   id: 'stephanus',
   name: 'Platón, Stephanus',
   levels: [
-    { key: 'page', values: 'arabic', resetOn: null },
+    { key: 'book', values: 'ROMAN' },
+    { key: 'page', values: 'arabic', resetOn: null, sep: ', ' },
     { key: 'sect', values: LETTERS_AE, sep: '' },
     { key: 'line', values: 'arabic', sep: '', interpolate: true },
   ],
@@ -44,20 +55,30 @@ export const stephanus: Scheme = {
     { pattern: String.raw`(?<page>\d{1,3})\s*(?<sect>[a-e])` },
     { pattern: String.raw`(?<sect>[a-e])`, where: ['margin'] },
   ],
+  headings: BOOK_HEADINGS,
 }
 
-/** Aristóteles, paginación de Bekker: «1094a1». */
+/**
+ * Aristóteles, paginación de Bekker: «1094a1», con libro y capítulo
+ * opcionales: «IV 2, 1003a33». La página no se reinicia con ellos.
+ */
 export const bekker: Scheme = {
   id: 'bekker',
   name: 'Aristóteles, Bekker',
   levels: [
-    { key: 'page', values: 'arabic', resetOn: null },
+    { key: 'book', values: 'ROMAN' },
+    { key: 'chapter', values: 'arabic' },
+    { key: 'page', values: 'arabic', resetOn: null, sep: ', ' },
     { key: 'col', values: COLUMNS_AB, sep: '' },
     { key: 'line', values: 'arabic', sep: '', interpolate: true },
   ],
   markers: [
     { pattern: String.raw`(?<page>\d{2,4})\s*(?<col>[ab])(?:\s*(?<line>\d{1,2}))?` },
     { pattern: String.raw`(?<line>[1-9]\d?)`, where: ['margin'] },
+  ],
+  headings: [
+    ...BOOK_HEADINGS,
+    { level: 'chapter', pattern: String.raw`(?:Cap[ií]tulo|Chapter|Caput|Cap\.)\s+(?<chapter>${NUM})` },
   ],
 }
 

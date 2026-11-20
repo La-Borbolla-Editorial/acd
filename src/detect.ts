@@ -7,7 +7,7 @@
 import { getScheme } from './map.js'
 import { anchorsOf, applySet, comparePos, formatRef, refAt } from './resolve.js'
 import type { Anchor, CanonMap, MarkerPlace, Position, Ref, Scheme } from './types.js'
-import { firstValue, fromRoman, nextValue, normalizeValue, ordinal, valueAt } from './values.js'
+import { firstValue, fromRoman, nextValue, normalizeValue, ordinal, valueAt, wordNumber } from './values.js'
 
 /** Fragmento de texto. Coordenadas en unidades del PDF, con origen ARRIBA a la izquierda. */
 export interface TextItem {
@@ -34,6 +34,17 @@ export interface DetectOptions {
   minBodyChars?: number
   /** Distancia mínima, en unidades del PDF, entre el cuerpo y una marca para que cuente como marginal. */
   marginGap?: number
+  /**
+   * Buscar en todo el PDF. Por omisión, si el mapa tiene anclas, se busca solo
+   * desde la primera (lo anterior suele ser estudio introductorio) y nunca
+   * después de un ancla de fin (`stop`) hasta la siguiente.
+   */
+  wholeDocument?: boolean
+  /**
+   * Hojas del PDF sin marcas a partir de las cuales una marca aislada es
+   * sospechosa (una letra suelta en las notas, cien hojas después del texto).
+   */
+  maxPageGap?: number
 }
 
 export interface Candidate extends Anchor {
@@ -51,7 +62,7 @@ export interface Candidate extends Anchor {
   text: string
 }
 
-const DEFAULTS: Required<DetectOptions> = { headerBand: 0.06, footerBand: 0.06, minBodyChars: 20, marginGap: 4 }
+const DEFAULTS: Required<DetectOptions> = { headerBand: 0.06, footerBand: 0.06, minBodyChars: 20, marginGap: 4, wholeDocument: false, maxPageGap: 20 }
 
 function quantile(xs: number[], q: number): number {
   const s = [...xs].sort((a, b) => a - b)
@@ -104,10 +115,11 @@ function setFrom(scheme: Scheme, groups: Record<string, string | undefined>): Re
     const l = scheme.levels.find((x) => x.key === k)
     if (!l) continue
     let n = normalizeValue(l.values, fixOcrDigits(v))
-    // Un nivel arábigo puede venir en romanos en un encabezado: «QUAESTIO II».
-    if (n === null && l.values === 'arabic') {
-      const r = fromRoman(v)
-      n = r === null ? null : String(r)
+    // En un encabezado el número puede venir en romanos («QUAESTIO II») o en
+    // palabras («Libro segundo»).
+    if (n === null && (l.values === 'arabic' || l.values === 'roman' || l.values === 'ROMAN')) {
+      const r = (l.values === 'arabic' ? fromRoman(v) : null) ?? wordNumber(v) ?? (/^\d+$/.test(v) ? Number(v) : null)
+      n = r === null ? null : valueAt(l.values, r)
     }
     if (n === null) return null
     set[k] = n
@@ -158,7 +170,7 @@ function findRaw(scheme: Scheme, pages: PageBox[], items: TextItem[], o: Require
     inline: new RegExp(`\\[\\s*(?:${m.pattern})\\s*\\]`, 'g'),
     lineStart: new RegExp(`^(?:\\[\\s*(?:${m.pattern})\\s*\\]|\\(\\s*(?:${m.pattern})\\s*\\))`),
   }))
-  const headings = (scheme.headings ?? []).map((h) => ({ level: h.level, re: new RegExp(`^(?:${h.pattern})`, 'i') }))
+  const headings = (scheme.headings ?? []).map((h) => ({ level: h.level, re: new RegExp(`^(?:${h.pattern})`, 'iu') }))
   const out: Raw[] = []
   for (const box of pages) {
     const top = box.height * o.headerBand
@@ -237,6 +249,8 @@ function findHeadings(
       if (!hit) continue
       const value = hit.groups?.[h.level]
       const set = value === undefined ? {} : setFrom(scheme, { [h.level]: value })
+      // Una palabra que no es un número («Libro de los muertos») no es encabezado.
+      if (value !== undefined && !set && /^\p{L}+$/u.test(value)) continue
       // Un número ilegible no descarta el encabezado: se infiere el siguiente.
       out.push({
         page: box.page, y: line.y / box.height, x: line.x, set: set ?? {}, where: 'heading', found: hit[0].trim(),
@@ -316,6 +330,7 @@ export function detect(
   const fixedRefs = fixed.map((a) => ({ a, ref: refAt(map, schemeId, a) }))
   const raw = findRaw(scheme, pages, items, o).filter((r) => !fixed.some((a) =>
     a.page === r.page && Math.abs(a.y - r.y) < 0.025 && Object.keys(r.set).some((k) => k in a.set)))
+    .filter((r) => o.wholeDocument || inText(fixed, r))
 
   // Recorrido en orden con las anclas fijas intercaladas: referencia tentativa de cada marca.
   type Ev = { fixed: Anchor } | { raw: Raw; idx: number }
@@ -330,10 +345,11 @@ export function detect(
   let fromFixed = true
   for (const e of events) {
     if ('fixed' in e) {
-      state = applySet(scheme, state, e.fixed.set)
+      state = e.fixed.stop ? {} : applySet(scheme, state, e.fixed.set)
       fromFixed = true
-      const k = key(scheme, state)
-      bounds[bounds.length - 1]!.high = k
+      // Un ancla de fin no acota: lo que sigue a ella ya no se compara con lo anterior.
+      const k = e.fixed.stop ? null : key(scheme, state)
+      if (k) bounds[bounds.length - 1]!.high = k
       tentative.push([])
       bounds.push({ low: k, high: null })
     } else {
@@ -349,6 +365,8 @@ export function detect(
   }
 
   const accepted = new Set<number>()
+  // Hoja de cada ancla fija, en el orden de los segmentos (el segmento s empieza tras la s-ésima).
+  const fixedPages = events.filter((e): e is { fixed: Anchor } => 'fixed' in e).map((e) => e.fixed.page)
   tentative.forEach((seg, s) => {
     const { low, high } = bounds[s]!
     const inside = seg.filter((t) => {
@@ -356,7 +374,15 @@ export function detect(
       return (!low || cmpKey(k, low) > 0) && (!high || cmpKey(k, high) < 0)
     })
     const chain = longestIncreasing(inside.map((t) => key(scheme, t.ref)))
-    inside.forEach((t, i) => { if (chain.has(i)) accepted.add(t.idx) })
+    // Una marca de la cadena muy lejos de la anterior está aislada: sospechosa.
+    let lastPage = s > 0 ? fixedPages[s - 1]! : null
+    inside.forEach((t, i) => {
+      if (!chain.has(i)) return
+      const page = raw[t.idx]!.page
+      if (lastPage !== null && page - lastPage > o.maxPageGap && raw[t.idx]!.where !== 'heading') return
+      accepted.add(t.idx)
+      lastPage = page
+    })
   })
   const considered = new Set(tentative.flat().map((t) => t.idx))
 
@@ -365,7 +391,7 @@ export function detect(
   const before: Ref[] = []
   state = {}
   for (const e of events) {
-    if ('fixed' in e) { state = applySet(scheme, state, e.fixed.set); continue }
+    if ('fixed' in e) { state = e.fixed.stop ? {} : applySet(scheme, state, e.fixed.set); continue }
     if (!considered.has(e.idx)) continue
     const r = e.raw
     const ref = applySet(scheme, state, r.set)
@@ -421,6 +447,20 @@ function expectedBetween(scheme: Scheme, prev: Ref, next: Ref): Candidate['corre
   const set = { [l.key]: v }
   const ref = applySet(scheme, prev, set)
   return { set, ref, text: formatRef(scheme, ref) }
+}
+
+/**
+ * ¿Está la marca dentro del texto? Sin anclas, todo lo está. Con anclas, desde
+ * la primera y fuera de los tramos que abre un ancla de fin.
+ */
+function inText(fixed: Anchor[], r: Raw): boolean {
+  if (fixed.length === 0) return true
+  let last: Anchor | null = null
+  for (const a of fixed) {
+    if (comparePos(a, { page: r.page, y: r.y }) <= 0) last = a
+    else break
+  }
+  return last !== null && !last.stop
 }
 
 /** Valor siguiente del nivel, o el primero si no tiene. */

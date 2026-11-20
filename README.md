@@ -16,6 +16,8 @@ no depende de él ni de ningún lector de PDF.
 - **Ancla**: «desde este punto del PDF (hoja, altura) rige este valor». Solo
   dice lo que cambia; lo demás se hereda del ancla anterior. Si cambia un nivel
   superior, los inferiores se reinician según `resetOn`.
+- **Fin del texto**: un ancla con `stop: true` dice «desde aquí no rige nada»
+  (notas, índices) hasta el ancla siguiente.
 - **Interpolación**: los niveles con `interpolate` (líneas de Bekker o de
   Burnet) se calculan entre dos anclas por la altura.
 - **Cita**: de una selección (inicio y fin) a una cita en **partes
@@ -44,10 +46,17 @@ por su hash.
    centradas, que empiezan con un patrón del esquema (`headings`). Si el número
    no se lee, toma el siguiente al vigente, con menos confianza.
 
+   **Solo busca dentro del texto**: si el mapa tiene anclas, desde la primera
+   (así se salta un estudio introductorio que cita pasajes) y nunca después de
+   un ancla de fin. Una marca aislada a más de 20 hojas de la anterior queda
+   sospechosa.
+
    Con la traducción de Spade de *Ordinatio* II d. 3 p. 1 (55 hojas, 212
    párrafos) detecta 205 de los 208 que tiene el PDF; los otros 3 quedan
    sospechosos con la corrección correcta. Detecta además los cinco cambios de
-   cuestión.
+   cuestión. Con una *República* en castellano (667 hojas), marcando solo el
+   comienzo del texto, detecta todas las páginas Stephanus y los diez libros,
+   sin una sola sospechosa en el estudio introductorio.
 
 `fromPdfjs` convierte lo que devuelve `page.getTextContent()` de pdf.js a los
 fragmentos que espera `detect`.
@@ -89,16 +98,18 @@ cite(mapa, 'ordinatio', { page: 37, y: 0.5 }, { page: 38, y: 0.6 })?.text // «I
 
 ## Esquemas incluidos
 
-`ordinatio` (Escoto), `stephanus` (Platón, con línea opcional), `bekker`
-(Aristóteles) y `paragraphs` (§). Cada uno es un objeto JSON, así que se pueden
+`ordinatio` (Escoto), `stephanus` (Platón: libro opcional y línea opcional,
+«II, 368a»), `bekker` (Aristóteles: libro y capítulo opcionales, «IV 2,
+1003a33») y `paragraphs` (§). Los encabezados de libro y capítulo se reconocen
+también con el número en palabras («Libro segundo», «Chapter Four»). Cada uno es un objeto JSON, así que se pueden
 definir otros.
 
 ## Pendiente
 
 - Confirmar con la edición Vaticana que el número de la *Ordinatio* se reinicia
   con la distinción, y cómo tratar «q. un.».
-- Encabezados con el número en palabras («Distinctio tertia», «Question
-  One»).
+- Libros de la *Metafísica* con letras griegas (Α, α, Β…): hoy, un esquema
+  propio con esos valores.
 - Hojas a dos columnas en la detección.
 - Más PDFs reales. Van en `fixtures/private/`, que git ignora (tienen
   derechos); `test/private.test.ts` se salta si no están.

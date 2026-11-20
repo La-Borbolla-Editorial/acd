@@ -4,7 +4,7 @@
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { expect, test } from 'vitest'
-import { addAnchor, createMap, detect, fromPdfjs, ordinatio, type PageBox, type TextItem } from '../src/index.js'
+import { addAnchor, createMap, detect, fromPdfjs, ordinatio, stephanus, type PageBox, type TextItem } from '../src/index.js'
 
 async function pdfItems(path: string): Promise<{ boxes: PageBox[]; items: TextItem[] }> {
   const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs')
@@ -45,3 +45,26 @@ test.skipIf(!existsSync(SPADE))('Ordinatio II d. 3 p. 1 (Spade)', async () => {
   ])
   expect(c.find((x) => x.found === '(43)')!.text).toBe('II d. 3 p. 1 q. 2 n. 43')
 }, 60_000)
+
+const REPUBLICA = 'fixtures/private/platon-republica.pdf'
+
+// Platón, República (trad. castellana): estudio introductorio que cita pasajes
+// con números Stephanus, texto desde la hoja 43 con Stephanus en el margen
+// derecho, libros que empiezan con un romano centrado, y notas al final.
+test.skipIf(!existsSync(REPUBLICA))('República (Stephanus, libros, estudio introductorio)', async () => {
+  const { boxes, items } = await pdfItems(REPUBLICA)
+  const map = addAnchor(createMap([stephanus]), { scheme: 'stephanus', page: 43, y: 0.49, set: { book: 'I', page: '327', sect: 'a' }, origin: 'manual' })
+  const c = detect(map, 'stephanus', boxes, items)
+  const ok = c.filter((x) => x.status === 'ok')
+  // Nada del estudio introductorio.
+  expect(c.every((x) => x.page >= 43)).toBe(true)
+  // Los diez libros (el I lo da el ancla).
+  expect(c.filter((x) => x.where === 'heading').map((x) => x.ref.book)).toEqual(['II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'])
+  // Todas las páginas Stephanus salvo los huecos entre libros.
+  const pages = new Set(ok.map((x) => Number(x.ref.page)))
+  const missing = Array.from({ length: 621 - 327 + 1 }, (_, i) => 327 + i).filter((p) => !pages.has(p))
+  expect(missing).toEqual([355, 356, 384, 385, 418, 446, 447, 448, 481, 482, 483, 512, 513, 542, 570, 593, 594])
+  expect(ok.at(-1)!.text).toBe('X, 621d')
+  // La única sospechosa: una letra suelta en las notas, lejos del final del texto.
+  expect(c.filter((x) => x.status === 'suspicious').map((x) => [x.page, x.found])).toEqual([[586, 'e']])
+}, 120_000)

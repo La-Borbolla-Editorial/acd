@@ -53,10 +53,10 @@ export function refAt(map: Pick<CanonMap, 'schemes' | 'anchors'>, schemeId: stri
   let last: Anchor | null = null
   let next: Anchor | null = null
   for (const a of anchors) {
-    if (comparePos(a, pos) <= 0) { state = applySet(scheme, state, a.set); last = a }
+    if (comparePos(a, pos) <= 0) { state = a.stop ? {} : applySet(scheme, state, a.set); last = a }
     else { next = a; break }
   }
-  if (last && next) state = interpolate(scheme, state, last, applySet(scheme, state, next.set), next, pos)
+  if (last && next && !next.stop) state = interpolate(scheme, state, last, applySet(scheme, state, next.set), next, pos)
   return state
 }
 
@@ -155,11 +155,18 @@ function valuePattern(l: Scheme['levels'][number]): string {
  * Los niveles van en el orden del esquema y todos son opcionales.
  */
 export function parseRef(scheme: Scheme, text: string): Record<string, string> | null {
-  const parts = scheme.levels.map((l) => {
+  const parts = scheme.levels.map((l, i) => {
     const label = l.label ? `${escapeRe(l.label)}\\s*` : ''
-    return `(?:${label}(?<${groupName(l.key)}>${valuePattern(l)}))?`
+    // Separador antes del nivel: «, » admite coma o espacio; «» o « », espacio opcional.
+    const sep = i === 0 ? '' : /\S/.test(l.sep ?? ' ') ? '\\s*[,;.]?\\s*' : '\\s*'
+    // Un número sin rótulo seguido de un nivel separado debe terminar en un
+    // límite: en «1094a1» el 1094 es la página, no el capítulo.
+    const next = scheme.levels[i + 1]
+    const ordered = l.values === 'arabic' || l.values === 'roman' || l.values === 'ROMAN'
+    const end = ordered && next && (next.sep ?? ' ') !== '' ? '(?=[\\s,;.]|$)' : ''
+    return `(?:${sep}${label}(?<${groupName(l.key)}>${valuePattern(l)})${end})?`
   })
-  const re = new RegExp(`^\\s*${parts.join('\\s*')}\\s*$`, 'i')
+  const re = new RegExp(`^\\s*${parts.join('')}\\s*$`, 'i')
   const m = re.exec(text)
   if (!m?.groups) return null
   const set: Record<string, string> = {}

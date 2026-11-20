@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { acceptCandidates, addAnchor, createMap, detect, fixOcrDigits, fromPdfjs, ordinatio, refAt, stephanus, type PageBox, type TextItem } from '../src/index.js'
+import { acceptCandidates, addAnchor, bekker, createMap, detect, fixOcrDigits, fromPdfjs, wordNumber, ordinatio, refAt, stephanus, type PageBox, type TextItem } from '../src/index.js'
 
 const W = 600
 const H = 800
@@ -183,4 +183,41 @@ test('al volver a detectar sobre un mapa con anclas: lo corregido no reaparece y
   }
   const c = detect(m, 'ordinatio', boxes(1), items)
   expect(c.map((x) => [x.found, x.status, x.correction?.set.n])).toEqual([['(53)', 'suspicious', '32']])
+})
+
+test('la detección empieza en la primera ancla y se detiene en un ancla de fin', () => {
+  const intro = page(1, { 3: '328c', 12: '331c' }) // estudio introductorio que cita la República
+  const text = page(2, { 2: '327a', 10: 'b', 20: 'c' })
+  const notes = page(3, { 5: 'e' })
+  let m = addAnchor(createMap([stephanus]), { scheme: 'stephanus', page: 2, y: 0.05, set: { book: 'I' }, origin: 'manual' })
+  m = addAnchor(m, { scheme: 'stephanus', page: 3, y: 0, set: {}, origin: 'manual', stop: true })
+  const c = detect(m, 'stephanus', boxes(3), [...intro, ...text, ...notes])
+  expect(c.map((x) => [x.page, x.text])).toEqual([[2, 'I, 327a'], [2, 'I, 327b'], [2, 'I, 327c']])
+  // Sin anclas, todo el PDF.
+  expect(detect(createMap([stephanus]), 'stephanus', boxes(3), [...intro, ...text]).length).toBe(5)
+})
+
+test('una marca aislada muy lejos de la anterior es sospechosa', () => {
+  const items = [...page(1, { 2: '621a', 10: 'b', 20: 'c' }), ...page(30, { 5: 'd' })]
+  const c = detect(createMap([stephanus]), 'stephanus', boxes(30), items)
+  expect(c.map((x) => [x.page, x.status])).toEqual([[1, 'ok'], [1, 'ok'], [1, 'ok'], [30, 'suspicious']])
+})
+
+test('encabezados de libro y capítulo, también en palabras', () => {
+  const items = [
+    ...pageWithHeadings(1, { 3: ['LIBRO SEGUNDO', 14, 250], 8: ['Capítulo tercero', 14, 250], 14: ['Chapter 4', 14, 250] }),
+    { page: 1, str: '1003a', x: 560, y: 60 + 10 * 22, width: 25, height: 10 },
+    // Un centrado que no es número no es encabezado.
+    ...pageWithHeadings(2, { 3: ['Libro de los muertos', 14, 230], 9: ['IV', 14, 295] }),
+  ]
+  const c = detect(createMap([bekker]), 'bekker', boxes(2), items)
+  expect(c.map((x) => [x.found, x.text])).toEqual([
+    ['LIBRO SEGUNDO', 'II'],
+    ['Capítulo tercero', 'II 3'],
+    ['1003a', 'II 3, 1003a'],
+    ['Chapter 4', 'II 4, 1003a'],
+    ['IV', 'IV, 1003a'],
+  ])
+  expect(wordNumber('Décimo')).toBe(10)
+  expect(wordNumber('tertia')).toBe(3)
 })

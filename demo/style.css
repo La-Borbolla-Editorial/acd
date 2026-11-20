@@ -179,3 +179,4 @@ main { overflow: auto; position: relative; }
 .pop .sugg .btn { text-align: left; }
 #citation.has { color: var(--ink); }
 #citation b { font-weight: 650; }
+.pin.anchor.stop { background: transparent; color: var(--muted); border-color: var(--muted); }
