@@ -63,6 +63,9 @@ fragmentos que espera `detect`.
 
 ## Visor de prueba
 
+Publicado en <https://la-borbolla-editorial.github.io/acd/> (se actualiza con
+cada push a `main`). El PDF no sale de tu navegador.
+
 ```bash
 npm run demo
 ```

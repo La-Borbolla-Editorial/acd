@@ -40,14 +40,19 @@ let views: PageView[] = []
 
 // --- Abrir el PDF -------------------------------------------------------------
 
+/** URL de un recurso estático, en local y en GitHub Pages (que sirve desde /acd/). */
+function asset(path: string): string {
+  return new URL(import.meta.env.BASE_URL + path, location.href).href
+}
+
 async function openPdf(data: ArrayBuffer, name: string): Promise<void> {
   void loading?.destroy()
   loading = pdfjs.getDocument({
     data,
-    cMapUrl: '/pdfjs/cmaps/',
-    standardFontDataUrl: '/pdfjs/standard_fonts/',
-    wasmUrl: '/pdfjs/wasm/',
-    iccUrl: '/pdfjs/iccs/',
+    cMapUrl: asset('pdfjs/cmaps/'),
+    standardFontDataUrl: asset('pdfjs/standard_fonts/'),
+    wasmUrl: asset('pdfjs/wasm/'),
+    iccUrl: asset('pdfjs/iccs/'),
   })
   doc = await loading.promise
   pdfName = name.replace(/\.pdf$/i, '')

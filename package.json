@@ -21,7 +21,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "predemo": "node scripts/copy-pdfjs.mjs",
-    "demo": "vite --config demo/vite.config.ts"
+    "demo": "vite --config demo/vite.config.ts",
+    "demo:build": "node scripts/copy-pdfjs.mjs && vite build --config demo/vite.config.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
