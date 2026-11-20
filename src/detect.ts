@@ -5,8 +5,8 @@
 // coordenadas (ver `pdfjs.ts` para obtenerlos de pdf.js).
 
 import { getScheme } from './map.js'
-import { anchorsOf, applySet, comparePos, formatRef } from './resolve.js'
-import type { Anchor, CanonMap, MarkerPlace, Ref, Scheme } from './types.js'
+import { anchorsOf, applySet, comparePos, formatRef, refAt } from './resolve.js'
+import type { Anchor, CanonMap, MarkerPlace, Position, Ref, Scheme } from './types.js'
 import { firstValue, fromRoman, nextValue, normalizeValue, ordinal, valueAt } from './values.js'
 
 /** Fragmento de texto. Coordenadas en unidades del PDF, con origen ARRIBA a la izquierda. */
@@ -310,7 +310,12 @@ export function detect(
   const scheme = getScheme(map, schemeId)
   const o = { ...DEFAULTS, ...options }
   const fixed = anchorsOf(map, schemeId)
-  const raw = findRaw(scheme, pages, items, o)
+  // Una marca en la misma línea que un ancla del mapa sobre el mismo nivel ya
+  // está resuelta: el ancla dice lo mismo, o alguien la corrigió (el ancla
+  // manual suele quedar un poco más arriba o más abajo que la marca impresa).
+  const fixedRefs = fixed.map((a) => ({ a, ref: refAt(map, schemeId, a) }))
+  const raw = findRaw(scheme, pages, items, o).filter((r) => !fixed.some((a) =>
+    a.page === r.page && Math.abs(a.y - r.y) < 0.025 && Object.keys(r.set).some((k) => k in a.set)))
 
   // Recorrido en orden con las anclas fijas intercaladas: referencia tentativa de cada marca.
   type Ev = { fixed: Anchor } | { raw: Raw; idx: number }
@@ -378,10 +383,16 @@ export function detect(
       status: ok ? 'ok' : 'suspicious', where: r.where, found: r.found, ref, text: formatRef(scheme, ref),
     })
   }
+  // Correcciones: el siguiente punto seguro (ancla del mapa o marca aceptada)
+  // que cambie el nivel más bajo.
+  const sure = [...fixedRefs.map(({ a, ref }) => ({ pos: a as Position, ref })), ...out.filter((x) => x.status === 'ok').map((x) => ({ pos: x as Position, ref: x.ref }))]
+    .sort((a, b) => comparePos(a.pos, b.pos))
   out.forEach((c, i) => {
     if (c.status !== 'suspicious') return
-    const next = out.slice(i + 1).find((x) => x.status === 'ok' && x.where !== 'heading')
-    const fix = next && expectedBetween(scheme, before[i]!, next.ref)
+    const prev = before[i]!
+    const low = [...scheme.levels].reverse().find((l) => prev[l.key] !== undefined)
+    const next = sure.find((x) => comparePos(x.pos, c) > 0 && (!low || x.ref[low.key] !== prev[low.key]))
+    const fix = next && expectedBetween(scheme, prev, next.ref)
     if (fix) c.correction = fix
   })
   return out

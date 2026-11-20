@@ -19,12 +19,15 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "predemo": "node scripts/copy-pdfjs.mjs",
+    "demo": "vite --config demo/vite.config.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
     "pdfjs-dist": "^6.5.438",
     "typescript": "^7.0.2",
+    "vite": "^8.3.8",
     "vitest": "^5.1.0"
   }
 }

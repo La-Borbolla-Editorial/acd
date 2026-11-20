@@ -166,3 +166,21 @@ test('una distinción nueva reinicia cuestión y número', () => {
   expect(c.map((x) => x.text)).toEqual(['II d. 3 q. 1 n. 29', 'II d. 4', 'II d. 4 q. 1', 'II d. 4 q. 1 n. 1'])
   expect(c.every((x) => x.status === 'ok')).toBe(true)
 })
+
+test('una marca en la misma línea que un ancla manual que dice lo mismo sobra', () => {
+  // El ancla manual, un poco por debajo de la marca impresa (29).
+  const m = addAnchor(createMap([ordinatio]), { scheme: 'ordinatio', page: 1, y: (60 + 2 * 22 + 6) / H, set: { liber: 'II', dist: '3', q: '1', n: '29' }, origin: 'manual' })
+  const c = detect(m, 'ordinatio', boxes(1), page(1, {}, { 2: '(29)', 10: '(30)' }))
+  expect(c.map((x) => x.found)).toEqual(['(30)'])
+})
+
+test('al volver a detectar sobre un mapa con anclas: lo corregido no reaparece y las correcciones usan las anclas', () => {
+  const items = page(1, {}, { 2: '(29)', 6: '(3)', 10: '(31)', 14: '(53)', 18: '(33)' })
+  let m = start()
+  // Ya aceptadas: 29, 31 y 33, y la corrección de «(3)» como 30.
+  for (const [line, n] of [[2, '29'], [6, '30'], [10, '31'], [18, '33']] as const) {
+    m = addAnchor(m, { scheme: 'ordinatio', page: 1, y: (60 + line * 22) / H, set: { n }, origin: 'detected' })
+  }
+  const c = detect(m, 'ordinatio', boxes(1), items)
+  expect(c.map((x) => [x.found, x.status, x.correction?.set.n])).toEqual([['(53)', 'suspicious', '32']])
+})

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>acd · visor de prueba</title>
+  </head>
+  <body>
+    <header class="bar">
+      <strong class="brand">acd</strong>
+      <label class="btn">Abrir PDF<input id="open-pdf" type="file" accept="application/pdf" hidden /></label>
+      <select id="scheme" title="Esquema de citación"></select>
+      <button id="detect" class="btn" disabled>Detectar</button>
+      <button id="mark" class="btn toggle" disabled title="Marcar a mano (M)">Marcar</button>
+      <span class="spacer"></span>
+      <button id="save-map" class="btn" disabled>Guardar mapa</button>
+      <label class="btn" id="load-map-label">Cargar mapa<input id="load-map" type="file" accept="application/json,.json" hidden /></label>
+    </header>
+    <div class="layout">
+      <aside id="side">
+        <section>
+          <h2>Mapa</h2>
+          <p id="map-summary" class="muted">Abre un PDF para empezar.</p>
+          <button id="clear-anchors" class="btn small danger" hidden>Borrar todas las anclas</button>
+        </section>
+        <section id="cand-section" hidden>
+          <h2>Detección</h2>
+          <p id="cand-summary"></p>
+          <div class="row">
+            <button id="accept-sure" class="btn small">Aceptar las seguras</button>
+            <button id="discard-sus" class="btn small">Descartar sospechosas</button>
+          </div>
+          <ol id="cand-list"></ol>
+        </section>
+        <section>
+          <h2>Cómo se usa</h2>
+          <ul class="help">
+            <li><b>Detectar</b> propone anclas: verdes, seguras; naranjas, sospechosas. Haz clic en una para aceptarla, corregirla o descartarla.</li>
+            <li><b>Marcar</b> (tecla M): haz clic a la altura donde empieza un lugar; el campo trae el valor siguiente. Enter confirma.</li>
+            <li>Selecciona texto para ver su cita abajo.</li>
+          </ul>
+        </section>
+      </aside>
+      <main id="viewer">
+        <div id="drop" class="drop">
+          <p>Arrastra aquí un PDF, o usa <b>Abrir PDF</b>.</p>
+          <p class="muted">El mapa se guarda en este navegador, asociado al PDF.</p>
+        </div>
+        <div id="pages"></div>
+      </main>
+    </div>
+    <footer class="bar foot">
+      <span id="here" class="muted"></span>
+      <span class="spacer"></span>
+      <span id="citation" class="muted">Selecciona texto para ver la cita.</span>
+    </footer>
+    <div id="pop" class="pop" hidden></div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { addAnchor, bekker, cite, createMap, formatRange, ordinatio, refAt, stephanus, suggestAt, validateMap, type CanonMap } from '../src/index.js'
+import { addAnchor, bekker, cite, createMap, formatRange, ordinatio, parseRef, refAt, stephanus, suggestAt, validateMap, type CanonMap } from '../src/index.js'
 
 function ord(...anchors: [number, number, Record<string, string>][]): CanonMap {
   let m = createMap([ordinatio, stephanus, bekker])
@@ -69,4 +69,15 @@ test('sugerencias al marcar a mano', () => {
   s = addAnchor(s, { scheme: 'stephanus', page: 1, y: 0.1, set: { page: '327', sect: 'e' }, origin: 'manual' })
   expect(suggestAt(s, 'stephanus', { page: 1, y: 0.5 })[0]!.text).toBe('328a')
   expect(suggestAt(createMap([ordinatio]), 'ordinatio', { page: 1, y: 0 })[0]!.text).toBe('prol.')
+})
+
+test('leer una referencia escrita a mano', () => {
+  expect(parseRef(ordinatio, 'n. 30')).toEqual({ n: '30' })
+  expect(parseRef(ordinatio, 'ii d.3 q. 2 n.30')).toEqual({ liber: 'II', dist: '3', q: '2', n: '30' })
+  expect(parseRef(ordinatio, 'prol. p. 1 q. 1')).toEqual({ liber: 'prol.', pars: '1', q: '1' })
+  expect(parseRef(stephanus, '328a')).toEqual({ page: '328', sect: 'a' })
+  expect(parseRef(stephanus, '327 c 4')).toEqual({ page: '327', sect: 'c', line: '4' })
+  expect(parseRef(bekker, '1094a1')).toEqual({ page: '1094', col: 'a', line: '1' })
+  expect(parseRef(ordinatio, 'q. dos')).toBeNull()
+  expect(parseRef(ordinatio, '')).toBeNull()
 })

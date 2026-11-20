@@ -2,7 +2,7 @@
 
 import { getScheme } from './map.js'
 import type { Anchor, CanonMap, Position, Ref, RefPart, Scheme } from './types.js'
-import { ordinal, valueAt } from './values.js'
+import { normalizeValue, ordinal, valueAt } from './values.js'
 
 export function comparePos(a: Position, b: Position): number {
   return a.page - b.page || (a.column ?? 0) - (b.column ?? 0) || a.y - b.y
@@ -135,4 +135,45 @@ export function cite(map: Pick<CanonMap, 'schemes' | 'anchors'>, schemeId: strin
   if (Object.keys(a).length === 0) return null
   const b = refAt(map, schemeId, end)
   return { scheme: schemeId, start: refParts(scheme, a), end: refParts(scheme, b), text: formatRange(scheme, a, b) }
+}
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function valuePattern(l: Scheme['levels'][number]): string {
+  if (l.values === 'arabic') return String.raw`\d+`
+  if (l.values === 'roman' || l.values === 'ROMAN') return '[ivxlcdm]+'
+  if (l.values === 'text') return String.raw`\S+`
+  // Los más largos primero: «prol.» antes que «p».
+  return [...l.values].sort((a, b) => b.length - a.length).map(escapeRe).join('|')
+}
+
+/**
+ * Lee una referencia escrita a mano: «n. 30», «II d. 3 q. 2», «328a», «1094a1».
+ * Devuelve los valores que fija, normalizados, o `null` si no se entiende.
+ * Los niveles van en el orden del esquema y todos son opcionales.
+ */
+export function parseRef(scheme: Scheme, text: string): Record<string, string> | null {
+  const parts = scheme.levels.map((l) => {
+    const label = l.label ? `${escapeRe(l.label)}\\s*` : ''
+    return `(?:${label}(?<${groupName(l.key)}>${valuePattern(l)}))?`
+  })
+  const re = new RegExp(`^\\s*${parts.join('\\s*')}\\s*$`, 'i')
+  const m = re.exec(text)
+  if (!m?.groups) return null
+  const set: Record<string, string> = {}
+  for (const l of scheme.levels) {
+    const v = m.groups[groupName(l.key)]
+    if (v === undefined) continue
+    const n = normalizeValue(l.values, v)
+    if (n === null) return null
+    set[l.key] = n
+  }
+  return Object.keys(set).length ? set : null
+}
+
+/** Nombre de grupo válido para una clave cualquiera. */
+function groupName(key: string): string {
+  return 'k_' + key.replace(/[^A-Za-z0-9_]/g, '_')
 }

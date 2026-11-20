@@ -52,6 +52,29 @@ por su hash.
 `fromPdfjs` convierte lo que devuelve `page.getTextContent()` de pdf.js a los
 fragmentos que espera `detect`.
 
+## Visor de prueba
+
+```bash
+npm run demo
+```
+
+Abre <http://localhost:5181>. Arrastra un PDF, o pásalo por la URL:
+`?pdf=/@fs/<ruta absoluta al PDF>`. En el visor:
+
+- **Detectar** propone anclas en el margen de cada hoja: verdes las seguras,
+  naranjas las sospechosas (con su corrección, si la hay). Un clic en una para
+  aceptarla, corregirla o descartarla; **Aceptar las seguras** acepta de una vez
+  las de confianza alta.
+- **Marcar** (tecla M): clic a la altura donde empieza un lugar; el campo trae
+  el valor siguiente y se escribe como se cita («n. 30», «II d. 3 q. 2»,
+  «328a»).
+- Al **seleccionar texto** aparece su cita abajo; al pasar el ratón, lo que
+  rige en ese punto.
+- El mapa se guarda en el navegador, asociado al PDF, y se puede descargar o
+  cargar como JSON.
+
+`parseRef(esquema, texto)` es lo que lee lo que se escribe a mano.
+
 ## Ejemplo
 
 ```ts
